@@ -1,6 +1,5 @@
 import os
-from datetime import datetime, timezone
-import asyncio
+from datetime import datetime
 import httpx
 import orjson
 from starlette.applications import Starlette
@@ -9,7 +8,6 @@ from starlette.responses import Response
 
 SEARCHER_URL = os.environ.get("SEARCHER_URL", "http://searcher:8001")
 
-# Normalization constants (from normalization.json — fixed for the competition)
 MAX_AMOUNT = 10_000.0
 MAX_INSTALLMENTS = 12.0
 AMOUNT_VS_AVG_RATIO = 10.0
@@ -18,7 +16,6 @@ MAX_KM = 1_000.0
 MAX_TX_COUNT_24H = 20.0
 MAX_MERCHANT_AVG_AMOUNT = 10_000.0
 
-# MCC risk table (from mcc_risk.json — fixed for the competition)
 MCC_RISK: dict[str, float] = {
     "5411": 0.15,
     "5812": 0.30,
@@ -32,7 +29,6 @@ MCC_RISK: dict[str, float] = {
     "5999": 0.50,
 }
 
-# Reused across all requests — do NOT create a new client per request
 http_client = httpx.AsyncClient(
     base_url=SEARCHER_URL,
     timeout=3.0,
@@ -69,58 +65,30 @@ def normalize(data: dict) -> list[float]:
     km_from_home: float = terminal["km_from_home"]
 
     dt = datetime.fromisoformat(requested_at.replace("Z", "+00:00"))
-    hour = dt.hour          # 0-23 UTC
-    dow = dt.weekday()      # Mon=0, Sun=6
+    hour = dt.hour
+    dow = dt.weekday()
 
-    # dim 0 — amount
     v0 = _clamp(amount / MAX_AMOUNT)
-
-    # dim 1 — installments
     v1 = _clamp(installments / MAX_INSTALLMENTS)
-
-    # dim 2 — amount vs customer average (10× average → clamped to 1.0)
-    if avg_amount > 0:
-        v2 = _clamp((amount / avg_amount) / AMOUNT_VS_AVG_RATIO)
-    else:
-        v2 = 1.0
-
-    # dim 3 — hour of day (0–23 UTC)
+    v2 = _clamp((amount / avg_amount) / AMOUNT_VS_AVG_RATIO) if avg_amount > 0 else 1.0
     v3 = hour / 23.0
-
-    # dim 4 — day of week (Mon=0 … Sun=6)
     v4 = dow / 6.0
 
-    # dims 5 & 6 — last transaction features (-1 sentinel when null)
     if last_tx is None:
         v5 = -1.0
         v6 = -1.0
     else:
-        last_ts = datetime.fromisoformat(
-            last_tx["timestamp"].replace("Z", "+00:00")
-        )
+        last_ts = datetime.fromisoformat(last_tx["timestamp"].replace("Z", "+00:00"))
         minutes = (dt - last_ts).total_seconds() / 60.0
         v5 = _clamp(minutes / MAX_MINUTES)
         v6 = _clamp(last_tx["km_from_current"] / MAX_KM)
 
-    # dim 7 — km from home
     v7 = _clamp(km_from_home / MAX_KM)
-
-    # dim 8 — tx count in last 24h
     v8 = _clamp(tx_count_24h / MAX_TX_COUNT_24H)
-
-    # dim 9 — is_online flag
     v9 = 1.0 if is_online else 0.0
-
-    # dim 10 — card present flag
     v10 = 1.0 if card_present else 0.0
-
-    # dim 11 — unknown merchant (1 = unseen merchant, 0 = known)
     v11 = 0.0 if merchant_id in known_merchants else 1.0
-
-    # dim 12 — MCC risk score (default 0.5 for unknown MCCs)
     v12 = MCC_RISK.get(mcc, 0.5)
-
-    # dim 13 — merchant average ticket
     v13 = _clamp(merchant_avg / MAX_MERCHANT_AVG_AMOUNT)
 
     return [v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13]

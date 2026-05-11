@@ -13,7 +13,6 @@ REFERENCES_PATH = "/data/references.json.gz"
 INDEX_CACHE_PATH = "/data/index.faiss"
 LABELS_CACHE_PATH = "/data/labels.npy"
 
-# Global state — populated once at startup
 index: faiss.Index | None = None
 labels: np.ndarray | None = None
 ready: bool = False
@@ -23,15 +22,13 @@ K = 5
 NLIST = 1024
 NPROBE = 32
 THRESHOLD = 0.6
-TRAIN_SIZE = 150_000   # vectors used to train IVF centroids + scalar quantizer
-BATCH_SIZE = 300_000   # vectors added to the index per iteration
+TRAIN_SIZE = 150_000
+BATCH_SIZE = 300_000
 
-# Thread pool for FAISS searches (C++ code, no GIL contention)
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
 def _stream_records(path: str):
-    """Yield records from a gzipped JSON array, one line at a time."""
     with gzip.open(path, "rt", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -56,18 +53,9 @@ def _build_or_load_index() -> None:
 
     print("[searcher] Building FAISS index from dataset...")
 
-    # ------------------------------------------------------------------ #
-    # Two-pass approach to minimise peak memory:                          #
-    # Pass 1 — collect training sample (first TRAIN_SIZE records)         #
-    # Pass 2 — add ALL records to the trained index in batches            #
-    # ------------------------------------------------------------------ #
-
-    # Byte buffer for labels (uint8): much cheaper than a Python list
-    # Pre-allocate 4M slots; we will trim at the end.
     MAX_RECORDS = 4_000_000
     labels_buf = bytearray(MAX_RECORDS)
 
-    # --- Pass 1: collect training sample ---
     print("[searcher] Pass 1 — collecting training sample...")
     train_vecs = np.empty((TRAIN_SIZE, DIM), dtype=np.float32)
     train_count = 0
@@ -81,7 +69,6 @@ def _build_or_load_index() -> None:
     train_vecs = train_vecs[:train_count]
     print(f"[searcher] Collected {train_count:,} training vectors.")
 
-    # Build IVFScalarQuantizer index (QT_8bit: 1 byte/dim → ~42 MB for 3M×14)
     quantizer = faiss.IndexFlatL2(DIM)
     idx = faiss.IndexIVFScalarQuantizer(
         quantizer,
@@ -92,9 +79,8 @@ def _build_or_load_index() -> None:
     )
     print("[searcher] Training IVF + scalar quantizer...")
     idx.train(train_vecs)
-    del train_vecs  # free training memory immediately
+    del train_vecs
 
-    # --- Pass 2: add all records in batches ---
     print("[searcher] Pass 2 — adding all vectors to index...")
     batch_vecs = np.empty((BATCH_SIZE, DIM), dtype=np.float32)
     batch_len = 0
@@ -133,7 +119,7 @@ def _build_or_load_index() -> None:
     index = idx
     labels = labels_arr
     ready = True
-    print(f"[searcher] Index built and cached. Ready.")
+    print("[searcher] Index built and cached. Ready.")
 
 
 def _faiss_search(vec: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -148,19 +134,10 @@ async def search(request: object) -> Response:
     _, ids = await loop.run_in_executor(executor, _faiss_search, vec)
 
     valid_ids = ids[0][ids[0] >= 0]
-    if len(valid_ids) == 0:
-        fraud_score_val = 0.0
-    else:
-        fraud_count = int(labels[valid_ids].sum())
-        fraud_score_val = fraud_count / K
+    fraud_score_val = int(labels[valid_ids].sum()) / K if len(valid_ids) > 0 else 0.0
 
     return Response(
-        orjson.dumps(
-            {
-                "approved": fraud_score_val < THRESHOLD,
-                "fraud_score": fraud_score_val,
-            }
-        ),
+        orjson.dumps({"approved": fraud_score_val < THRESHOLD, "fraud_score": fraud_score_val}),
         media_type="application/json",
     )
 

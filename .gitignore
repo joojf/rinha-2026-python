@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+data/index.faiss
+data/labels.npy
+data/references.json.gz
+.pytest_cache/
