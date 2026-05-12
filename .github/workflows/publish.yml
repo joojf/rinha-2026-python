@@ -6,6 +6,8 @@ on:
     paths:
       - "api/**"
       - "searcher/**"
+      - ".github/workflows/publish.yml"
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
