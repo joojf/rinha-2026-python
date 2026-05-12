@@ -1,0 +1,7 @@
+{
+    "participants": ["joojf"],
+    "social": ["https://github.com/joojf"],
+    "source-code-repo": "https://github.com/joojf/rinha-2026-python",
+    "stack": ["python", "starlette", "faiss", "nginx", "docker"],
+    "open_to_work": false
+}
