@@ -1,0 +1,53 @@
+name: Publish Docker Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "searcher/**"
+
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE: ghcr.io/joojf/rinha-2026-python-api
+  SEARCHER_IMAGE: ghcr.io/joojf/rinha-2026-python-searcher
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.API_IMAGE }}:latest
+            ${{ env.API_IMAGE }}:${{ github.sha }}
+
+      - name: Build and push Searcher image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./searcher
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.SEARCHER_IMAGE }}:latest
+            ${{ env.SEARCHER_IMAGE }}:${{ github.sha }}
