@@ -47,8 +47,6 @@ def _ensure_dataset() -> None:
 def _build_or_load_index() -> None:
     global index, labels, ready
 
-    _ensure_dataset()
-
     if os.path.exists(INDEX_CACHE_PATH) and os.path.exists(LABELS_CACHE_PATH):
         print("[searcher] Loading cached FAISS index...")
         index = faiss.read_index(INDEX_CACHE_PATH)
@@ -57,6 +55,8 @@ def _build_or_load_index() -> None:
         ready = True
         print(f"[searcher] Ready — {index.ntotal:,} vectors loaded from cache.")
         return
+
+    _ensure_dataset()
 
     print("[searcher] Building FAISS index from dataset...")
 
