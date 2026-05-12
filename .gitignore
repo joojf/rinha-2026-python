@@ -4,4 +4,7 @@ __pycache__/
 data/index.faiss
 data/labels.npy
 data/references.json.gz
+data/mcc_risk.json
+data/normalization.json
+test/results.json
 .pytest_cache/

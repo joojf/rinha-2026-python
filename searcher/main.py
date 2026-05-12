@@ -4,12 +4,14 @@ import asyncio
 import concurrent.futures
 import numpy as np
 import faiss
+import ijson
 import orjson
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.responses import Response
 
 REFERENCES_PATH = "/data/references.json.gz"
+REFERENCES_URL = "https://github.com/zanfranceschi/rinha-de-backend-2026/raw/main/resources/references.json.gz"
 INDEX_CACHE_PATH = "/data/index.faiss"
 LABELS_CACHE_PATH = "/data/labels.npy"
 
@@ -20,7 +22,7 @@ ready: bool = False
 DIM = 14
 K = 5
 NLIST = 1024
-NPROBE = 32
+NPROBE = 16
 THRESHOLD = 0.6
 TRAIN_SIZE = 150_000
 BATCH_SIZE = 300_000
@@ -29,18 +31,23 @@ executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
 def _stream_records(path: str):
-    with gzip.open(path, "rt", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line[0] in ("[", "]"):
-                continue
-            if line.endswith(","):
-                line = line[:-1]
-            yield orjson.loads(line)
+    with gzip.open(path, "rb") as f:
+        yield from ijson.items(f, "item")
+
+
+def _ensure_dataset() -> None:
+    if not os.path.exists(REFERENCES_PATH):
+        import urllib.request
+        print("[searcher] Dataset not found — downloading from GitHub...")
+        os.makedirs(os.path.dirname(REFERENCES_PATH), exist_ok=True)
+        urllib.request.urlretrieve(REFERENCES_URL, REFERENCES_PATH)
+        print("[searcher] Download complete.")
 
 
 def _build_or_load_index() -> None:
     global index, labels, ready
+
+    _ensure_dataset()
 
     if os.path.exists(INDEX_CACHE_PATH) and os.path.exists(LABELS_CACHE_PATH):
         print("[searcher] Loading cached FAISS index...")
