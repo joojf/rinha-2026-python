@@ -48,12 +48,15 @@ def _build_or_load_index() -> None:
     global index, labels, ready
 
     if os.path.exists(INDEX_CACHE_PATH) and os.path.exists(LABELS_CACHE_PATH):
-        print("[searcher] Loading cached FAISS index...")
-        index = faiss.read_index(INDEX_CACHE_PATH)
+        print("[searcher] mmap-loading cached FAISS index...")
+        index = faiss.read_index(INDEX_CACHE_PATH, faiss.IO_FLAG_MMAP)
         index.nprobe = NPROBE
-        labels = np.load(LABELS_CACHE_PATH)
+        labels = np.load(LABELS_CACHE_PATH, mmap_mode="r")
+        warmup_vec = np.zeros((1, DIM), dtype=np.float32)
+        for _ in range(8):
+            index.search(warmup_vec, K)
         ready = True
-        print(f"[searcher] Ready — {index.ntotal:,} vectors loaded from cache.")
+        print(f"[searcher] Ready — {index.ntotal:,} vectors mmap'd.")
         return
 
     _ensure_dataset()
