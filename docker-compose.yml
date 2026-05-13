@@ -19,6 +19,7 @@ services:
   api1:
     image: ghcr.io/joojf/rinha-2026-python-api:latest
     platform: linux/amd64
+    pull_policy: always
     restart: on-failure:3
     deploy:
       resources:
@@ -29,6 +30,7 @@ services:
   api2:
     image: ghcr.io/joojf/rinha-2026-python-api:latest
     platform: linux/amd64
+    pull_policy: always
     restart: on-failure:3
     deploy:
       resources:
