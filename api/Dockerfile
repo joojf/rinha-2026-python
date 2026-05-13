@@ -8,5 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY --from=index-downloader /data/index.faiss /data/index.faiss
 COPY --from=index-downloader /data/labels.npy /data/labels.npy
+RUN test -f /data/index.faiss && test -f /data/labels.npy
+ENV OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONUNBUFFERED=1
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", \
      "--loop", "uvloop", "--http", "httptools", "--workers", "1"]
