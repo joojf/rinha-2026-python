@@ -18,37 +18,20 @@ services:
   api1:
     image: ghcr.io/joojf/rinha-2026-python-api:latest
     platform: linux/amd64
-    environment:
-      - SEARCHER_URL=http://searcher:8001
-    depends_on:
-      - searcher
     deploy:
       resources:
         limits:
-          cpus: "0.20"
-          memory: "55MB"
+          cpus: "0.475"
+          memory: "165MB"
 
   api2:
     image: ghcr.io/joojf/rinha-2026-python-api:latest
     platform: linux/amd64
-    environment:
-      - SEARCHER_URL=http://searcher:8001
-    depends_on:
-      - searcher
     deploy:
       resources:
         limits:
-          cpus: "0.20"
-          memory: "55MB"
-
-  searcher:
-    image: ghcr.io/joojf/rinha-2026-python-searcher:latest
-    platform: linux/amd64
-    deploy:
-      resources:
-        limits:
-          cpus: "0.55"
-          memory: "220MB"
+          cpus: "0.475"
+          memory: "165MB"
 
 networks:
   default:
