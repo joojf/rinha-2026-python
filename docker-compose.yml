@@ -9,6 +9,7 @@ services:
     depends_on:
       - api1
       - api2
+    restart: on-failure:3
     deploy:
       resources:
         limits:
@@ -18,6 +19,7 @@ services:
   api1:
     image: ghcr.io/joojf/rinha-2026-python-api:latest
     platform: linux/amd64
+    restart: on-failure:3
     deploy:
       resources:
         limits:
@@ -27,6 +29,7 @@ services:
   api2:
     image: ghcr.io/joojf/rinha-2026-python-api:latest
     platform: linux/amd64
+    restart: on-failure:3
     deploy:
       resources:
         limits:
