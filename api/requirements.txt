@@ -2,6 +2,3 @@ starlette==0.46.2
 uvicorn==0.34.2
 uvloop==0.21.0
 httptools==0.6.4
-orjson==3.10.18
-numpy==2.2.5
-faiss-cpu==1.10.0
