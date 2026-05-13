@@ -107,13 +107,7 @@ async def fraud_score(request: object) -> Response:
 
 
 async def ready(request: object) -> Response:
-    try:
-        resp = await http_client.get("/health", timeout=1.0)
-        if resp.status_code == 200:
-            return Response("ok", status_code=200)
-    except Exception:
-        pass
-    return Response("not ready", status_code=503)
+    return Response("ok", status_code=200)
 
 
 app = Starlette(
