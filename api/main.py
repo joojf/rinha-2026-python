@@ -1,12 +1,20 @@
 import os
+import gzip
+import asyncio
+import concurrent.futures
 from datetime import datetime
-import httpx
+import numpy as np
+import faiss
+import ijson
 import orjson
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.responses import Response
 
-SEARCHER_URL = os.environ.get("SEARCHER_URL", "http://searcher:8001")
+INDEX_CACHE_PATH = "/data/index.faiss"
+LABELS_CACHE_PATH = "/data/labels.npy"
+REFERENCES_PATH = "/data/references.json.gz"
+REFERENCES_URL = "https://github.com/zanfranceschi/rinha-de-backend-2026/raw/main/resources/references.json.gz"
 
 MAX_AMOUNT = 10_000.0
 MAX_INSTALLMENTS = 12.0
@@ -29,11 +37,19 @@ MCC_RISK: dict[str, float] = {
     "5999": 0.50,
 }
 
-http_client = httpx.AsyncClient(
-    base_url=SEARCHER_URL,
-    timeout=3.0,
-    limits=httpx.Limits(max_connections=100, max_keepalive_connections=50),
-)
+DIM = 14
+K = 5
+NLIST = 1024
+NPROBE = 16
+THRESHOLD = 0.6
+TRAIN_SIZE = 150_000
+BATCH_SIZE = 300_000
+
+index: faiss.Index | None = None
+labels: np.ndarray | None = None
+ready: bool = False
+
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
 def _clamp(x: float) -> float:
@@ -94,25 +110,130 @@ def normalize(data: dict) -> list[float]:
     return [v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13]
 
 
+def _stream_records(path: str):
+    with gzip.open(path, "rb") as f:
+        yield from ijson.items(f, "item")
+
+
+def _ensure_dataset() -> None:
+    if not os.path.exists(REFERENCES_PATH):
+        import urllib.request
+        print("[api] Dataset not found — downloading from GitHub...")
+        os.makedirs(os.path.dirname(REFERENCES_PATH), exist_ok=True)
+        urllib.request.urlretrieve(REFERENCES_URL, REFERENCES_PATH)
+        print("[api] Download complete.")
+
+
+def _build_or_load_index() -> None:
+    global index, labels, ready
+
+    if os.path.exists(INDEX_CACHE_PATH) and os.path.exists(LABELS_CACHE_PATH):
+        print("[api] mmap-loading cached FAISS index...")
+        index = faiss.read_index(INDEX_CACHE_PATH, faiss.IO_FLAG_MMAP)
+        index.nprobe = NPROBE
+        labels = np.load(LABELS_CACHE_PATH, mmap_mode="r")
+        warmup_vec = np.zeros((1, DIM), dtype=np.float32)
+        for _ in range(8):
+            index.search(warmup_vec, K)
+        ready = True
+        print(f"[api] Ready — {index.ntotal:,} vectors mmap'd.")
+        return
+
+    _ensure_dataset()
+
+    print("[api] Building FAISS index from dataset...")
+    MAX_RECORDS = 4_000_000
+    labels_buf = bytearray(MAX_RECORDS)
+
+    print("[api] Pass 1 — collecting training sample...")
+    train_vecs = np.empty((TRAIN_SIZE, DIM), dtype=np.float32)
+    train_count = 0
+    for record in _stream_records(REFERENCES_PATH):
+        if train_count >= TRAIN_SIZE:
+            break
+        train_vecs[train_count] = record["vector"]
+        train_count += 1
+    train_vecs = train_vecs[:train_count]
+
+    quantizer = faiss.IndexFlatL2(DIM)
+    idx = faiss.IndexIVFScalarQuantizer(
+        quantizer, DIM, NLIST, faiss.ScalarQuantizer.QT_8bit, faiss.METRIC_L2,
+    )
+    idx.train(train_vecs)
+    del train_vecs
+
+    print("[api] Pass 2 — adding all vectors to index...")
+    batch_vecs = np.empty((BATCH_SIZE, DIM), dtype=np.float32)
+    batch_len = 0
+    total = 0
+
+    def flush_batch():
+        nonlocal batch_len, total
+        idx.add(batch_vecs[:batch_len])
+        total += batch_len
+        batch_len = 0
+
+    for record in _stream_records(REFERENCES_PATH):
+        vec = record["vector"]
+        label = 1 if record["label"] == "fraud" else 0
+        batch_vecs[batch_len] = vec
+        labels_buf[total + batch_len] = label
+        batch_len += 1
+        if batch_len == BATCH_SIZE:
+            flush_batch()
+
+    if batch_len > 0:
+        flush_batch()
+
+    del batch_vecs
+    idx.nprobe = NPROBE
+    faiss.write_index(idx, INDEX_CACHE_PATH)
+    labels_arr = np.frombuffer(labels_buf[:total], dtype=np.uint8).copy()
+    np.save(LABELS_CACHE_PATH, labels_arr)
+    del labels_buf
+
+    index = idx
+    labels = labels_arr
+    ready = True
+    print("[api] Index built and cached. Ready.")
+
+
+def _faiss_search(vec: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    return index.search(vec, K)
+
+
 async def fraud_score(request: object) -> Response:
     body = await request.body()
     data = orjson.loads(body)
-    vector = normalize(data)
-    resp = await http_client.post(
-        "/search",
-        content=orjson.dumps(vector),
-        headers={"Content-Type": "application/json"},
+    vec = np.array(normalize(data), dtype=np.float32).reshape(1, DIM)
+
+    loop = asyncio.get_running_loop()
+    _, ids = await loop.run_in_executor(executor, _faiss_search, vec)
+
+    valid_ids = ids[0][ids[0] >= 0]
+    fraud_score_val = int(labels[valid_ids].sum()) / K if len(valid_ids) > 0 else 0.0
+
+    return Response(
+        orjson.dumps({"approved": fraud_score_val < THRESHOLD, "fraud_score": fraud_score_val}),
+        media_type="application/json",
     )
-    return Response(resp.content, media_type="application/json")
 
 
-async def ready(request: object) -> Response:
-    return Response("ok", status_code=200)
+async def ready_check(request: object) -> Response:
+    if ready:
+        return Response("ok", status_code=200)
+    return Response("not ready", status_code=503)
+
+
+async def on_startup() -> None:
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _build_or_load_index)
 
 
 app = Starlette(
     routes=[
         Route("/fraud-score", fraud_score, methods=["POST"]),
-        Route("/ready", ready, methods=["GET"]),
-    ]
+        Route("/ready", ready_check, methods=["GET"]),
+    ],
+    on_startup=[on_startup],
 )

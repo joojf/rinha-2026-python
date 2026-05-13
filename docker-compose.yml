@@ -20,43 +20,22 @@ services:
       context: ./api
       platforms:
         - linux/amd64
-    environment:
-      - SEARCHER_URL=http://searcher:8001
-    depends_on:
-      - searcher
     deploy:
       resources:
         limits:
-          cpus: "0.20"
-          memory: "55MB"
+          cpus: "0.475"
+          memory: "165MB"
 
   api2:
     build:
       context: ./api
       platforms:
         - linux/amd64
-    environment:
-      - SEARCHER_URL=http://searcher:8001
-    depends_on:
-      - searcher
     deploy:
       resources:
         limits:
-          cpus: "0.20"
-          memory: "55MB"
-
-  searcher:
-    build:
-      context: ./searcher
-      platforms:
-        - linux/amd64
-    volumes:
-      - ./data:/data
-    deploy:
-      resources:
-        limits:
-          cpus: "0.55"
-          memory: "220MB"
+          cpus: "0.475"
+          memory: "165MB"
 
 networks:
   default:
