@@ -1,3 +1,12 @@
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+import numpy as np  # noqa: F401
+import faiss  # noqa: F401
+import orjson  # noqa: F401
+
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.responses import Response
