@@ -41,14 +41,14 @@ MCC_RISK: dict[str, float] = {
 
 DIM = 14
 K = 5
-NPROBE = 16
+NPROBE = 8
 THRESHOLD = 0.6
 
 index: faiss.Index | None = None
 labels: np.ndarray | None = None
 ready: bool = False
 
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
 
 def _clamp(x: float) -> float:
