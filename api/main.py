@@ -41,7 +41,7 @@ MCC_RISK: dict[str, float] = {
 
 DIM = 14
 K = 5
-NPROBE = 8
+NPROBE = 16
 THRESHOLD = 0.6
 
 index: faiss.Index | None = None
