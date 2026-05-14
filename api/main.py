@@ -7,7 +7,7 @@ import asyncio
 
 import numpy as np
 import faiss
-import orjson  # noqa: F401
+import orjson
 
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -15,6 +15,9 @@ from starlette.responses import Response
 
 INDEX_PATH = "/data/index.faiss"
 LABELS_PATH = "/data/labels.npy"
+
+K = 5
+THRESHOLD = 0.6
 
 ready = False
 index = None
@@ -43,8 +46,15 @@ async def on_startup():
 
 
 async def fraud_score(request: object) -> Response:
+    vec = np.zeros((1, 14), dtype=np.float32)
+    _, indices = index.search(vec, K)
+
+    neighbor_labels = labels[indices[0]]
+    score = float(np.sum(neighbor_labels == 1)) / K
+    approved = score < THRESHOLD
+
     return Response(
-        b'{"approved":true,"fraud_score":0.0}',
+        orjson.dumps({"approved": approved, "fraud_score": score}),
         media_type="application/json",
     )
 
