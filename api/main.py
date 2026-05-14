@@ -48,7 +48,7 @@ index: faiss.Index | None = None
 labels: np.ndarray | None = None
 ready: bool = False
 
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
 def _clamp(x: float) -> float:
