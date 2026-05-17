@@ -41,14 +41,23 @@ MCC_RISK: dict[str, float] = {
 
 DIM = 14
 K = 5
-NPROBE = 16
-THRESHOLD = 0.6
+NPROBE_FAST = 12
+NPROBE_FULL = 24
+
+FRAUD_RESPONSES: list[bytes] = [
+    b'{"approved":true,"fraud_score":0.0}',
+    b'{"approved":true,"fraud_score":0.2}',
+    b'{"approved":true,"fraud_score":0.4}',
+    b'{"approved":false,"fraud_score":0.6}',
+    b'{"approved":false,"fraud_score":0.8}',
+    b'{"approved":false,"fraud_score":1.0}',
+]
 
 index: faiss.Index | None = None
 labels: np.ndarray | None = None
 ready: bool = False
 
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 
 def _clamp(x: float) -> float:
@@ -113,16 +122,26 @@ def _load_index() -> None:
     global index, labels
     print("[startup] loading index...", flush=True)
     index = faiss.read_index(INDEX_PATH, faiss.IO_FLAG_MMAP)
-    index.nprobe = NPROBE
     labels = np.load(LABELS_PATH, mmap_mode="r")
     warmup_vec = np.zeros((1, DIM), dtype=np.float32)
-    for _ in range(8):
-        index.search(warmup_vec, K)
+    for nprobe in (NPROBE_FAST, NPROBE_FULL):
+        index.nprobe = nprobe
+        for _ in range(25):
+            index.search(warmup_vec, K)
     print(f"[startup] index loaded — {index.ntotal:,} vectors.", flush=True)
 
 
-def _faiss_search(vec: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    return index.search(vec, K)
+def _faiss_search(vec: np.ndarray, nprobe: int) -> np.ndarray:
+    index.nprobe = nprobe
+    _, ids = index.search(vec, K)
+    return ids[0]
+
+
+def _count_fraud(ids_row: np.ndarray) -> int:
+    valid = ids_row[ids_row >= 0]
+    if len(valid) == 0:
+        return 0
+    return int(labels[valid].sum())
 
 
 async def on_startup() -> None:
@@ -137,24 +156,23 @@ async def on_startup() -> None:
         raise
 
 
-async def fraud_score(request: object) -> Response:
+async def fraud_score(request) -> Response:
     body = await request.body()
     data = orjson.loads(body)
     vec = np.array(normalize(data), dtype=np.float32).reshape(1, DIM)
 
     loop = asyncio.get_running_loop()
-    _, ids = await loop.run_in_executor(executor, _faiss_search, vec)
+    ids = await loop.run_in_executor(executor, _faiss_search, vec, NPROBE_FAST)
+    fraud_count = _count_fraud(ids)
 
-    valid_ids = ids[0][ids[0] >= 0]
-    score = float(labels[valid_ids].sum()) / K if len(valid_ids) > 0 else 0.0
+    if fraud_count == 2 or fraud_count == 3:
+        ids = await loop.run_in_executor(executor, _faiss_search, vec, NPROBE_FULL)
+        fraud_count = _count_fraud(ids)
 
-    return Response(
-        orjson.dumps({"approved": score < THRESHOLD, "fraud_score": score}),
-        media_type="application/json",
-    )
+    return Response(FRAUD_RESPONSES[fraud_count], media_type="application/json")
 
 
-async def ready_check(request: object) -> Response:
+async def ready_check(request) -> Response:
     if not ready:
         return Response("loading", status_code=503)
     return Response("ok", status_code=200)

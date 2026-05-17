@@ -1,3 +1,6 @@
+volumes:
+  sockets:
+
 services:
   nginx:
     image: nginx:1.27-alpine
@@ -6,6 +9,7 @@ services:
       - "9999:9999"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - sockets:/sockets
     depends_on:
       - api1
       - api2
@@ -13,7 +17,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.05"
+          cpus: "0.40"
           memory: "20MB"
 
   api1:
@@ -21,11 +25,15 @@ services:
       context: ./api
       platforms:
         - linux/amd64
+    environment:
+      LISTEN_UDS: /sockets/api1.sock
+    volumes:
+      - sockets:/sockets
     restart: on-failure:3
     deploy:
       resources:
         limits:
-          cpus: "0.475"
+          cpus: "0.30"
           memory: "165MB"
 
   api2:
@@ -33,11 +41,15 @@ services:
       context: ./api
       platforms:
         - linux/amd64
+    environment:
+      LISTEN_UDS: /sockets/api2.sock
+    volumes:
+      - sockets:/sockets
     restart: on-failure:3
     deploy:
       resources:
         limits:
-          cpus: "0.475"
+          cpus: "0.30"
           memory: "165MB"
 
 networks:
