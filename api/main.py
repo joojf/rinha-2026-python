@@ -42,7 +42,7 @@ MCC_RISK: dict[str, float] = {
 DIM = 14
 K = 5
 NPROBE_FAST = 12
-NPROBE_FULL = 24
+NPROBE_FULL = 20
 
 FRAUD_RESPONSES: list[bytes] = [
     b'{"approved":true,"fraud_score":0.0}',
@@ -119,16 +119,21 @@ def normalize(data: dict) -> list[float]:
 
 
 def _load_index() -> None:
-    global index, labels
+    global index, labels, ready
     print("[startup] loading index...", flush=True)
-    index = faiss.read_index(INDEX_PATH, faiss.IO_FLAG_MMAP)
-    labels = np.load(LABELS_PATH, mmap_mode="r")
-    warmup_vec = np.zeros((1, DIM), dtype=np.float32)
-    for nprobe in (NPROBE_FAST, NPROBE_FULL):
-        index.nprobe = nprobe
-        for _ in range(25):
+    try:
+        index = faiss.read_index(INDEX_PATH, faiss.IO_FLAG_MMAP)
+        labels = np.load(LABELS_PATH, mmap_mode="r")
+        index.nprobe = NPROBE_FAST
+        warmup_vec = np.zeros((1, DIM), dtype=np.float32)
+        for _ in range(4):
             index.search(warmup_vec, K)
-    print(f"[startup] index loaded — {index.ntotal:,} vectors.", flush=True)
+        ready = True
+        print(f"[startup] index loaded — {index.ntotal:,} vectors. ready=True", flush=True)
+    except Exception as exc:
+        import traceback
+        print(f"[startup] FAILED: {exc}", flush=True)
+        traceback.print_exc()
 
 
 def _faiss_search(vec: np.ndarray, nprobe: int) -> np.ndarray:
@@ -145,15 +150,8 @@ def _count_fraud(ids_row: np.ndarray) -> int:
 
 
 async def on_startup() -> None:
-    global ready
     loop = asyncio.get_running_loop()
-    try:
-        await loop.run_in_executor(None, _load_index)
-        ready = True
-        print("[startup] ready=True", flush=True)
-    except Exception as exc:
-        print(f"[startup] FAILED: {exc}", flush=True)
-        raise
+    loop.run_in_executor(None, _load_index)
 
 
 async def fraud_score(request) -> Response:
