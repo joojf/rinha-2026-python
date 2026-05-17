@@ -17,4 +17,4 @@ ENV OMP_NUM_THREADS=1 \
     PYTHONHASHSEED=0 \
     MALLOC_ARENA_MAX=2 \
     MALLOC_TRIM_THRESHOLD_=131072
-CMD ["sh", "-c", "umask 0000 && exec granian --interface asgi main:app --uds ${LISTEN_UDS:-/sockets/api.sock} --workers 1 --runtime-threads 1 --runtime-mode st --loop uvloop --http 1 --no-ws --no-access-log --backlog 2048 --backpressure 256"]
+CMD ["sh", "-c", "umask 0000 && exec granian --interface asgi main:app --uds ${LISTEN_UDS:-/sockets/api.sock} --uds-permissions 666 --workers 1 --runtime-threads 1 --runtime-mode st --loop uvloop --http 1 --no-ws --no-access-log --backlog 2048 --backpressure 256"]
