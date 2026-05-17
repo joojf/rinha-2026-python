@@ -42,7 +42,7 @@ MCC_RISK: dict[str, float] = {
 DIM = 14
 K = 5
 NPROBE_FAST = 12
-NPROBE_FULL = 24
+NPROBE_FULL = 20
 
 FRAUD_RESPONSES: list[bytes] = [
     b'{"approved":true,"fraud_score":0.0}',
