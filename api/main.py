@@ -5,10 +5,12 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import asyncio
 import concurrent.futures
+import gc
 from datetime import datetime
 
 import numpy as np
 import faiss
+faiss.omp_set_num_threads(1)
 import orjson
 
 from starlette.applications import Starlette
@@ -128,6 +130,11 @@ def _load_index() -> None:
         warmup_vec = np.zeros((1, DIM), dtype=np.float32)
         for _ in range(4):
             index.search(warmup_vec, K)
+
+        gc.collect(2)
+        gc.freeze()
+        gc.set_threshold(50_000, 10, 10)
+
         ready = True
         print(f"[startup] index loaded — {index.ntotal:,} vectors. ready=True", flush=True)
     except Exception as exc:
